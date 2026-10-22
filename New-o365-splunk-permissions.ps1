@@ -20,13 +20,27 @@
       Office 365 Management APIs
         ActivityFeed.Read
 
+    Splunk Add-on for Microsoft 365 Defender - required:
+      Microsoft Graph (default)
+        SecurityIncident.Read.All, SecurityAlert.Read.All, ThreatHunting.Read.All
+      or with -DefenderLegacyApi (Microsoft 365 Defender APIs)
+        Microsoft Threat Protection: Incident.Read.All, AdvancedHunting.Read.All
+        WindowsDefenderATP:          Alert.Read.All
+      always (Microsoft Graph)
+        AttackSimulation.Read.All, ThreatIntelligence.Read.All
+
     Optional permissions (skip with -SkipOptional):
       Microsoft Graph
         Application.ReadWrite.All            - lets Splunk set up the Message Trace prerequisites itself
         InformationProtectionPolicy.Read.All - published sensitivity labels and label policies
         GroupMember.ReadWrite.All            - "Add Member to Group" alert action
+        SecurityIncident.ReadWrite.All       - Defender "update incident" alert action
+                                               (Microsoft Threat Protection Incident.ReadWrite.All with -DefenderLegacyApi)
       Office 365 Management APIs
         ActivityFeed.ReadDlp                 - DLP events (needs an additional Entra ID subscription)
+
+    The Defender Event Hub input (ms:defender:eventhub) needs no API permission - give the app the
+    "Azure Event Hubs Data Receiver" role on the Event Hub instead.
 
     Only for USGovGCC / USGovGCCHigh tenants (-GovTenant):
       Office 365 Exchange Online ReportingWebService.Read.All (Message Trace through RWS)
@@ -77,6 +91,8 @@ param(
     [switch]$SkipOptional,
     # USGovGCC / USGovGCCHigh tenant - Message Trace through Exchange RWS instead of Graph
     [switch]$GovTenant,
+    # Defender incidents/alerts/hunting through the legacy Microsoft 365 Defender APIs instead of Graph
+    [switch]$DefenderLegacyApi,
     # Only remove Application.ReadWrite.All from an existing app (no new secret)
     [switch]$RemoveAppReadWrite
 )
@@ -90,6 +106,8 @@ if (-not $AppName) { $AppName = "$($Name.ToUpper())-SPLUNK-O365" }
 $GraphAppId    = "00000003-0000-0000-c000-000000000000"   # Microsoft Graph
 $O365MgmtAppId = "c5393580-f805-4401-95e8-94b7a6ef2fc2"   # Office 365 Management APIs
 $ExchangeAppId = "00000002-0000-0ff1-ce00-000000000000"   # Office 365 Exchange Online
+$MtpAppId      = "8ee8fdad-f234-4243-8f3b-15c294843740"   # Microsoft Threat Protection (Defender XDR API)
+$MdeAppId      = "fc780465-2017-40d4-a0c5-307022471b92"   # WindowsDefenderATP
 
 $required = @{
     $GraphAppId    = @(
@@ -103,6 +121,18 @@ $optional = @{
     $GraphAppId    = @("InformationProtectionPolicy.Read.All", "GroupMember.ReadWrite.All")
     $O365MgmtAppId = @("ActivityFeed.ReadDlp")
 }
+# Splunk Add-on for Microsoft 365 Defender
+if ($DefenderLegacyApi) {
+    $required[$MtpAppId]   = @("Incident.Read.All", "AdvancedHunting.Read.All")
+    $required[$MdeAppId]   = @("Alert.Read.All")
+    $optional[$MtpAppId]   = @("Incident.ReadWrite.All")
+}
+else {
+    $required[$GraphAppId] += "SecurityIncident.Read.All", "SecurityAlert.Read.All", "ThreatHunting.Read.All"
+    $optional[$GraphAppId] += "SecurityIncident.ReadWrite.All"
+}
+$required[$GraphAppId] += "AttackSimulation.Read.All", "ThreatIntelligence.Read.All"
+
 if ($GovTenant) {
     $required[$ExchangeAppId] = @("ReportingWebService.Read.All")
 }
